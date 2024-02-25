@@ -1,4 +1,4 @@
-# Data Engineering Project README
+# Multinational Rretail Data Centralisation
 
 ## Table of Contents
 - [Description](#description)
