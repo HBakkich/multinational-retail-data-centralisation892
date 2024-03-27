@@ -1,3 +1,6 @@
+--Milestone 2: Create the database schema
+
+
 ALTER TABLE orders_table 
     ALTER COLUMN date_uuid TYPE UUID USING date_uuid::uuid,
     ALTER COLUMN user_uuid TYPE UUID USING user_uuid::uuid,
@@ -94,13 +97,19 @@ ALTER TABLE orders_table
     REFERENCES dim_card_details (card_number);
 
 
---Milestone 3
+--Milestone 3: Querying the data
 
+
+-- The Operations team would like to know which countries we currently operate in and which country now has the most stores.
 SELECT DISTINCT country_code AS Country, 
         COUNT(store_code) AS total_no_stores
         FROM dim_store_details
         GROUP BY country_code;    
 
+
+-- The business stakeholders would like to know which locations currently have the most stores.
+-- They would like to close some stores before opening more in other locations.
+-- Find out which locations have the most stores currently. 
 SELECT DISTINCT locality, 
         COUNT(store_code) AS total_no_stores 
         FROM dim_store_details
@@ -108,6 +117,8 @@ SELECT DISTINCT locality,
         HAVING COUNT(store_code) >= 10
         ORDER BY total_no_stores DESC;
 
+
+-- Query the database to find out which months have produced the most sales.
 SELECT SUM(orders_table.product_quantity * dim_products.product_price) AS total_sales, dim_date_times.month 
     FROM orders_table 
     JOIN dim_products ON orders_table.product_code = dim_products.product_code
@@ -116,6 +127,10 @@ SELECT SUM(orders_table.product_quantity * dim_products.product_price) AS total_
     ORDER BY total_sales DESC
     LIMIT 6
 
+
+-- The company is looking to increase its online sales.
+-- They want to know how many sales are happening online vs offline.
+-- Calculate how many products were sold and the amount of sales made for online and offline purchases.
 SELECT count(orders_table.product_quantity) AS numbers_of_sales, 
 sum(orders_table.product_quantity) AS product_quantity_count, 
 (CASE WHEN dim_store_details.store_type 
@@ -128,6 +143,9 @@ JOIN dim_store_details ON orders_table.store_code = dim_store_details.store_code
 GROUP BY location
 ORDER BY location DESC
 
+
+-- The sales team wants to know which of the different store types is generated the most revenue so they know where to focus.
+-- Find out the total and percentage of sales coming from each of the different store types.
 SELECT store_type, ROUND(total_sales::decimal, 2), 
     ROUND((total_sales * 100.0 / sum(total_sales) OVER ())::decimal, 2) AS "percentage_total(%)" 
     FROM
@@ -139,36 +157,34 @@ SELECT store_type, ROUND(total_sales::decimal, 2),
         GROUP BY store_type)
     ORDER BY total_sales DESC
 
-WITH sales_year_and_month
-AS (
-    SELECT
-          *
-        , row_number() OVER (PARTITION BY year ORDER BY total_sales DESC) AS rn
-    FROM (
-        SELECT
-              year
-            , month
-            , SUM(orders_table.product_quantity * dim_products.product_price) AS total_sales
-        FROM dim_date_times
-        JOIN orders_table ON orders_table.date_uuid = dim_date_times.date_uuid
-        JOIN dim_products ON dim_products.product_code = orders_table.product_code
-        GROUP BY year
-            , month
-        )
-    )
-SELECT
-      ROUND(total_sales::decimal, 2)
-    , month
-    , year
-FROM sales_year_and_month
-WHERE rn = 1
-ORDER BY total_sales DESC
-LIMIT 10
 
+-- The company stakeholders want assurances that the company has been doing well recently.
+-- Find which months in which years have had the most sales historically.
+WITH sales_year_and_month AS (
+    SELECT *, row_number() OVER (PARTITION BY year ORDER BY total_sales DESC) AS rn
+        FROM (
+            SELECT year, month, SUM(orders_table.product_quantity * dim_products.product_price) AS total_sales
+            FROM dim_date_times
+            JOIN orders_table ON orders_table.date_uuid = dim_date_times.date_uuid
+            JOIN dim_products ON dim_products.product_code = orders_table.product_code
+            GROUP BY year
+                , month
+            )
+    )
+SELECT ROUND(total_sales::decimal, 2), month, year
+    FROM sales_year_and_month
+    WHERE rn = 1
+    ORDER BY total_sales DESC
+    LIMIT 10
+
+
+-- The operations team would like to know the overall staff numbers in each location around the world. Perform a query to determine the staff numbers in each of the countries the company sells in.
 SELECT SUM(staff_numbers) AS total_staff_numbers, country_code FROM dim_store_details
 GROUP BY country_code
 ORDER BY total_staff_numbers DESC
 
+
+-- The sales team is looking to expand their territory in Germany. Determine which type of store is generating the most sales in Germany.
 SELECT ROUND(SUM(orders_table.product_quantity * dim_products.product_price)::decimal, 2) AS total_sales, dim_store_details.store_type, country_code
     FROM orders_table 
     JOIN dim_products ON orders_table.product_code = dim_products.product_code
@@ -177,6 +193,9 @@ SELECT ROUND(SUM(orders_table.product_quantity * dim_products.product_price)::de
     GROUP BY store_type, country_code
     ORDER BY total_sales ASC
 
+
+-- Sales would like the get an accurate metric for how quickly the company is making sales.
+-- Determine the average time taken between each sale grouped by year.
 WITH time_table(date_uuid, year, month, day, hour, minutes, seconds) AS (
 	SELECT date_uuid, year, month, day,
 		EXTRACT(hour FROM timestamp::time) AS hour,
