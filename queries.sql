@@ -1,4 +1,3 @@
-
 ALTER TABLE orders_table 
     ALTER COLUMN date_uuid TYPE UUID USING date_uuid::uuid,
     ALTER COLUMN user_uuid TYPE UUID USING user_uuid::uuid,
@@ -95,4 +94,121 @@ ALTER TABLE orders_table
     REFERENCES dim_card_details (card_number);
 
 
+--Milestone 3
+
+SELECT DISTINCT country_code AS Country, 
+        COUNT(store_code) AS total_no_stores
+        FROM dim_store_details
+        GROUP BY country_code;    
+
+SELECT DISTINCT locality, 
+        COUNT(store_code) AS total_no_stores 
+        FROM dim_store_details
+        GROUP BY locality
+        HAVING COUNT(store_code) >= 10
+        ORDER BY total_no_stores DESC;
+
+SELECT SUM(orders_table.product_quantity * dim_products.product_price) AS total_sales, dim_date_times.month 
+    FROM orders_table 
+    JOIN dim_products ON orders_table.product_code = dim_products.product_code
+    JOIN dim_date_times ON orders_table.date_uuid = dim_date_times.date_uuid
+    GROUP BY dim_date_times.month
+    ORDER BY total_sales DESC
+    LIMIT 6
+
+SELECT count(orders_table.product_quantity) AS numbers_of_sales, 
+sum(orders_table.product_quantity) AS product_quantity_count, 
+(CASE WHEN dim_store_details.store_type 
+        LIKE 'Web Portal' 
+        THEN 'Web' 
+        ELSE 'Offline' 
+        END)  
+AS location FROM orders_table
+JOIN dim_store_details ON orders_table.store_code = dim_store_details.store_code
+GROUP BY location
+ORDER BY location DESC
+
+SELECT store_type, ROUND(total_sales::decimal, 2), 
+    ROUND((total_sales * 100.0 / sum(total_sales) OVER ())::decimal, 2) AS "percentage_total(%)" 
+    FROM
+        (SELECT dim_store_details.store_type, 
+        SUM(orders_table.product_quantity * dim_products.product_price) AS total_sales
+        FROM dim_store_details 
+        JOIN orders_table ON orders_table.store_code = dim_store_details.store_code
+        JOIN dim_products ON orders_table.product_code = dim_products.product_code
+        GROUP BY store_type)
+    ORDER BY total_sales DESC
+
+WITH sales_year_and_month
+AS (
+    SELECT
+          *
+        , row_number() OVER (PARTITION BY year ORDER BY total_sales DESC) AS rn
+    FROM (
+        SELECT
+              year
+            , month
+            , SUM(orders_table.product_quantity * dim_products.product_price) AS total_sales
+        FROM dim_date_times
+        JOIN orders_table ON orders_table.date_uuid = dim_date_times.date_uuid
+        JOIN dim_products ON dim_products.product_code = orders_table.product_code
+        GROUP BY year
+            , month
+        )
+    )
+SELECT
+      ROUND(total_sales::decimal, 2)
+    , month
+    , year
+FROM sales_year_and_month
+WHERE rn = 1
+ORDER BY total_sales DESC
+LIMIT 10
+
+SELECT SUM(staff_numbers) AS total_staff_numbers, country_code FROM dim_store_details
+GROUP BY country_code
+ORDER BY total_staff_numbers DESC
+
+SELECT ROUND(SUM(orders_table.product_quantity * dim_products.product_price)::decimal, 2) AS total_sales, dim_store_details.store_type, country_code
+    FROM orders_table 
+    JOIN dim_products ON orders_table.product_code = dim_products.product_code
+    JOIN dim_store_details ON orders_table.store_code = dim_store_details.store_code
+    WHERE country_code LIKE 'DE'
+    GROUP BY store_type, country_code
+    ORDER BY total_sales ASC
+
+WITH time_table(date_uuid, year, month, day, hour, minutes, seconds) AS (
+	SELECT date_uuid, year, month, day,
+		EXTRACT(hour FROM timestamp::time) AS hour,
+		EXTRACT(minute FROM timestamp::time) AS minutes,
+		EXTRACT(second FROM timestamp::time) AS seconds
+	FROM dim_date_times),
+	
+	timestamp_table(timestamp, date_uuid, year) AS (
+    SELECT MAKE_TIMESTAMP(time_table.year::INT, time_table.month::INT,
+                            time_table.day::INT, time_table.hour::INT,	
+                            time_table.minutes::INT, time_table.seconds::FLOAT) AS order_timestamp,
+        time_table.date_uuid AS date_uuid, 
+        time_table.year AS year
+    FROM time_table),
+	
+	time_stamp_diffs(year, time_diff) AS (
+    SELECT timestamp_table.year, timestamp_table.timestamp - LAG(timestamp_table.timestamp) OVER (ORDER BY timestamp_table.timestamp asc) AS time_diff
+    FROM orders_table
+    JOIN timestamp_table ON orders_table.date_uuid = timestamp_table.date_uuid),
+
+	year_time_diffs(year, average_time_diff) AS (
+    SELECT year, AVG(time_diff) AS average_time_diff
+    FROM time_stamp_diffs
+    GROUP BY year
+    ORDER BY average_time_diff desc)
+		
+SELECT 
+	year, 
+	CONCAT('hours: ', EXTRACT(HOUR FROM average_time_diff),
+					'  minutes: ', EXTRACT(MINUTE FROM average_time_diff),
+				   '  seconds: ', CAST(EXTRACT(SECOND FROM average_time_diff) AS INT),
+				   '  milliseconds: ', CAST(EXTRACT(MILLISECOND FROM average_time_diff) AS INT)) AS actual_time_taken
+FROM year_time_diffs
+LIMIT 5;
 
